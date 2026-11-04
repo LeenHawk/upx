@@ -1,0 +1,94 @@
+# Builds the packers gproxy downloads, from the gproxy branch, on a gproxy-* tag.
+# Linux binaries are static (musl) so any glibc or musl build host can run them.
+name: gproxy release
+
+on:
+  push:
+    tags: ['gproxy-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    container: docker.io/library/alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, runner: ubuntu-24.04 }
+          - { arch: aarch64, runner: ubuntu-24.04-arm }
+    steps:
+      - run: apk add --no-cache bash cmake g++ git linux-headers make
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+      - name: Build
+        shell: bash
+        run: |
+          git config --global --add safe.directory "$PWD"
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DUPX_CONFIG_DISABLE_WERROR=ON \
+            -DCMAKE_EXE_LINKER_FLAGS=-static
+          cmake --build build --parallel "$(nproc)"
+          cd build && ctest --output-on-failure --parallel "$(nproc)"
+          ./upx --version
+          mkdir -p ../dist && cp upx "../dist/upx-linux-${{ matrix.arch }}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: upx-linux-${{ matrix.arch }}
+          path: dist/
+          retention-days: 3
+
+  windows:
+    name: Windows ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x64, runner: windows-2025, platform: x64 }
+          - { arch: arm64, runner: windows-11-arm, platform: ARM64 }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+      - name: Build
+        shell: bash
+        run: |
+          cmake -S . -B build -A ${{ matrix.platform }} -T host=x64 -DUPX_CONFIG_DISABLE_WERROR=ON
+          cmake --build build --config Release --target upx --parallel 4
+          build/Release/upx.exe --version
+          mkdir -p dist && cp build/Release/upx.exe "dist/upx-windows-${{ matrix.arch }}.exe"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: upx-windows-${{ matrix.arch }}
+          path: dist/
+          retention-days: 3
+
+  release:
+    name: Publish
+    if: startsWith(github.ref, 'refs/tags/gproxy-')
+    needs: [linux, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: upx-*
+          path: dist
+          merge-multiple: true
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cd dist
+          sha256sum upx-* > SHA256SUMS
+          cat SHA256SUMS
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "$TAG" --notes "UPX for gproxy, built from $GITHUB_SHA on the gproxy branch." \
+            upx-* SHA256SUMS
