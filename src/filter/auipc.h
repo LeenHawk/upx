@@ -116,8 +116,8 @@ static int F(Filter *f) {
     int calls = 0, noncalls = 0;
     int lastcall = 0;
     int gi;
-    int constexpr g_end = 128;
-    int gang[g_end];
+    // Each AUIPC in a gang is at most 'size' and 4 or 6 bytes after the previous one.
+    Array(int, gang, 1 + (size >> 2));
 
     int ilen = 0; (void)gang; // not needed, but placate ignorant compiler
     for (ic = 0; ic <= size; ic += ilen) {
@@ -138,8 +138,6 @@ static int F(Filter *f) {
               ||  ((3!= (3& b2))  // after AUIPC is 2-byte instr
                  && ((kc= 6+ jc), (b2= *(kc+b)), (COND(b2))) ) )
             &&  kc <= size) {  // filtering changes 8 bytes; same limit as unfiltering
-                if (g_end <= gi)
-                    throwInternalError("gang of AUIPC too large at +%#x", ic);
                 gang[gi++] = kc;
                 jc = kc;  // continue looking, starting after newest AUIPC
             }
