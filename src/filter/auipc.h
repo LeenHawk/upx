@@ -91,7 +91,10 @@ static int get_ilen(int w)  // instruction length in bytes
         ilen += 2;
         if (7 == (7& (w >>2))) {
             ilen += 2;
-            // NYI: 8 bytes or longer
+            if (3 == (3& (w >>5))) { // same as stub/src/arch/riscv/64/bxx.S
+                ilen += 2;
+            }
+            // NYI: 10 bytes or longer
         }
     }
     return ilen;
@@ -113,8 +116,8 @@ static int F(Filter *f) {
     int calls = 0, noncalls = 0;
     int lastcall = 0;
     int gi;
-    int constexpr g_end = 128;
-    int gang[g_end];
+    // Each AUIPC in a gang is at most 'size' and 4 or 6 bytes after the previous one.
+    Array(int, gang, 1 + (size >> 2));
 
     int ilen = 0; (void)gang; // not needed, but placate ignorant compiler
     for (ic = 0; ic <= size; ic += ilen) {
@@ -131,11 +134,10 @@ static int F(Filter *f) {
             // starts in that "shadow", then that will create problems
             // for both filtering and unfiltering.  So find the "gang".
             int kc, b2;
-            if ((  (kc= 4+ jc), (b2= *(kc+b)), (COND(b2)))
-            ||  ((3!= (3& b2))  // after AUIPC is 2-byte instr
-               && ((kc= 6+ jc), (b2= *(kc+b)), (COND(b2))) ) ) {
-                if (g_end <= gi)
-                    throwInternalError("gang of AUIPC too large at +%#x", ic);
+            if (((  (kc= 4+ jc), (b2= *(kc+b)), (COND(b2)))
+              ||  ((3!= (3& b2))  // after AUIPC is 2-byte instr
+                 && ((kc= 6+ jc), (b2= *(kc+b)), (COND(b2))) ) )
+            &&  kc <= size) {  // filtering changes 8 bytes; same limit as unfiltering
                 gang[gi++] = kc;
                 jc = kc;  // continue looking, starting after newest AUIPC
             }
