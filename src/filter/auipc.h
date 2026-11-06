@@ -134,9 +134,10 @@ static int F(Filter *f) {
             // starts in that "shadow", then that will create problems
             // for both filtering and unfiltering.  So find the "gang".
             int kc, b2;
-            if ((  (kc= 4+ jc), (b2= *(kc+b)), (COND(b2)))
-            ||  ((3!= (3& b2))  // after AUIPC is 2-byte instr
-               && ((kc= 6+ jc), (b2= *(kc+b)), (COND(b2))) ) ) {
+            if (((  (kc= 4+ jc), (b2= *(kc+b)), (COND(b2)))
+              ||  ((3!= (3& b2))  // after AUIPC is 2-byte instr
+                 && ((kc= 6+ jc), (b2= *(kc+b)), (COND(b2))) ) )
+            &&  kc <= size) {  // filtering changes 8 bytes; same limit as unfiltering
                 if (g_end <= gi)
                     throwInternalError("gang of AUIPC too large at +%#x", ic);
                 gang[gi++] = kc;
