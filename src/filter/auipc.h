@@ -116,8 +116,8 @@ static int F(Filter *f) {
     int calls = 0, noncalls = 0;
     int lastcall = 0;
     int gi;
-    // Each AUIPC in a gang is at most 'size' and 4 or 6 bytes after the previous one.
-    Array(int, gang, 1 + (size >> 2));
+    int constexpr g_end = 16384; // 32-bit host: 2GiB must hold input, output, upx, and stack
+    Array(int, gang, g_end);
 
     int ilen = 0; (void)gang; // not needed, but placate ignorant compiler
     for (ic = 0; ic <= size; ic += ilen) {
@@ -134,10 +134,15 @@ static int F(Filter *f) {
             // starts in that "shadow", then that will create problems
             // for both filtering and unfiltering.  So find the "gang".
             int kc, b2;
-            if (((  (kc= 4+ jc), (b2= *(kc+b)), (COND(b2)))
-              ||  ((3!= (3& b2))  // after AUIPC is 2-byte instr
-                 && ((kc= 6+ jc), (b2= *(kc+b)), (COND(b2))) ) )
-            &&  kc <= size) {  // filtering changes 8 bytes; same limit as unfiltering
+            if ((  (kc= 4+ jc), (b2= *(kc+b)), (COND(b2)))
+            ||  ((3!= (3& b2))  // after AUIPC is 2-byte instr
+               && ((kc= 6+ jc), (b2= *(kc+b)), (COND(b2))) ) ) {
+                if (size < kc) { // filtering changes 8 bytes; same limit as unfiltering
+                    ilen = kc - ic;  // beyond 'size': also ends the outer 'for'
+                    break;  // gang has ended
+                }
+                if (g_end <= gi)
+                    throwCantPack("Cannot pack: gang of AUIPC aliases > %d.  Use --no-filter.", g_end);
                 gang[gi++] = kc;
                 jc = kc;  // continue looking, starting after newest AUIPC
             }
